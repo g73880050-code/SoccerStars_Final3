@@ -12,120 +12,94 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ------------------------------------------------------------------
       # 1. Checkout
-      # ------------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------------
-      # 2. Python runtime
-      # ------------------------------------------------------------------
+      # 2. Python setup
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
+          cache: "pip"
 
-      # ------------------------------------------------------------------
       # 3. System dependencies
-      #
-      #    libtinfo5 was removed from ubuntu-24.04 (ubuntu-latest as of
-      #    2025+).  The packages listed here are the current equivalents
-      #    that Buildozer / python-for-android actually need.
-      # ------------------------------------------------------------------
       - name: Install system dependencies
         run: |
-          sudo apt-get update -qq
+          sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             git \
             zip \
             unzip \
-            openjdk-17-jdk \
             autoconf \
-            automake \
             libtool \
             pkg-config \
             zlib1g-dev \
-            libncurses6 \
-            libncursesw6 \
-            libssl-dev \
-            libffi-dev \
-            libsqlite3-dev \
-            libgdbm-dev \
-            build-essential \
-            ccache \
+            libncurses5-dev \
+            libncursesw5-dev \
             cmake \
-            ninja-build \
-            gettext
+            libffi-dev \
+            libssl-dev \
+            build-essential \
+            libsqlite3-dev \
+            sqlite3 \
+            bzip2 \
+            libbz2-dev \
+            liblzma-dev \
+            libgdbm-dev \
+            libnss3-dev \
+            libreadline-dev \
+            tk-dev \
+            uuid-dev \
+            libmpdec-dev
 
-      # ------------------------------------------------------------------
-      # 4. Java home (required by Buildozer / Gradle)
-      # ------------------------------------------------------------------
-      - name: Set JAVA_HOME
-        run: echo "JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))" >> "$GITHUB_ENV"
+      # 4. Java Setup
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-      # ------------------------------------------------------------------
-      # 5. Python build tools + Buildozer
-      #
-      #    Direct pip install — no third-party action required.
-      #    Cython is pinned to a version compatible with p4a develop.
-      # ------------------------------------------------------------------
+      # 5. Buildozer & dependencies
       - name: Install Buildozer and Python dependencies
         run: |
-          pip install --upgrade pip wheel setuptools
-          pip install "cython==3.0.10"
-          pip install "buildozer>=1.5.0"
+          python -m pip install --upgrade pip
+          pip install --user --upgrade buildozer cython virtualenv
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # ------------------------------------------------------------------
-      # 6. Cache Buildozer downloads (.buildozer/android/platform)
-      #
-      #    This cache stores the Android SDK, NDK, and compiled p4a
-      #    recipes — cutting repeat build time from ~50 min to ~5 min.
-      # ------------------------------------------------------------------
+      # 6. Cache Buildozer downloads
       - name: Cache Buildozer global directory
         uses: actions/cache@v4
         with:
           path: |
-            soccer_stars_android/.buildozer/android/platform
-            soccer_stars_android/.buildozer/android/app
-          key: buildozer-${{ runner.os }}-${{ hashFiles('soccer_stars_android/buildozer.spec') }}
+            ~/.buildozer
+            .buildozer
+          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
             buildozer-${{ runner.os }}-
 
-      # ------------------------------------------------------------------
       # 7. Build the APK
-      #
-      #    Both main.py and buildozer.spec live in soccer_stars_android/
-      #    so we cd there before running Buildozer.
-      # ------------------------------------------------------------------
       - name: Build debug APK
-        working-directory: soccer_stars_android
         env:
-          ANDROID_HOME: ${{ github.workspace }}/soccer_stars_android/.buildozer/android/platform/android-sdk
+          ANDROID_HOME: ${{ github.workspace }}/android-sdk
         run: |
+          export PATH=$PATH:~/.local/bin
           buildozer -v android debug 2>&1 | tee buildozer_build.log
 
-      # ------------------------------------------------------------------
       # 8. Upload APK artifact
-      # ------------------------------------------------------------------
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: soccer-stars-analyzer-debug-apk
-          path: soccer_stars_android/bin/*.apk
+          path: bin/*.apk
           retention-days: 30
           if-no-files-found: error
 
-      # ------------------------------------------------------------------
-      # 9. Upload build log on failure (easier debugging)
-      # ------------------------------------------------------------------
+      # 9. Upload build log on failure
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: buildozer-failure-log
-          path: soccer_stars_android/buildozer_build.log
-          retention-days: 7
-          if-no-files-found: ignore
+          path: buildozer_build.log
